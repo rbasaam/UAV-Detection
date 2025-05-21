@@ -58,15 +58,15 @@ class Exporter:
                 dummy_input,
                 self.exportPath,
                 # export_params=True,
-                # opset_version=11,
+                opset_version=17,
                 # do_constant_folding=True,
-                # input_names=['input'],
-                # output_names=['boxes', 'labels', 'scores'],
+                input_names=['input'],
+                output_names=['boxes', 'labels', 'scores'],
                 # dynamic_axes={
                 #     'input': {2: 'height', 3: 'width'},
-                #     # 'boxes': {0: 'detections'},
-                #     # 'labels': {0: 'detections'},
-                #     # 'scores': {0: 'detections'},
+                #     'boxes': {0: 'detections'},
+                #     'labels': {0: 'detections'},
+                #     'scores': {0: 'detections'},
                 #     },
                 # # dynamo=True
             )
@@ -79,7 +79,7 @@ class Exporter:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export models to ONNX format.")
-    parser.add_argument('--model', type=str, required=True, help="Model name: 'fasterrcnn' or 'yolov11'")
+    parser.add_argument('-m','--model', type=str, required=True, help="Model name: 'fasterrcnn' or 'yolov11'")
     args = parser.parse_args()
 
     exporter = Exporter(args.model)
