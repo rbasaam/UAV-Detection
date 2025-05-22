@@ -1,83 +1,183 @@
+"""
+Model exporter module for UAV Detection.
+
+This module provides functionality for exporting trained models to ONNX format
+to enable deployment across different platforms and inference engines.
+"""
+
 import os
 import sys
 import torch
 import logging
 import argparse
 import torch.onnx
-import torchvision
-import ultralytics
+from detector import Detector
 
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("Exporter")
 
-models = {
-    'fasterrcnn': 'fasterrcnn.pth',
-    'yolov11': 'yolov11.pt',
-}
+# Constants
+SUPPORTED_MODELS = ['fasterrcnn', 'yolov11', 'rfdetr']
+DEFAULT_EXPORT_DIR = 'models'
+
 
 class Exporter:
-    def __init__(self, modelName):
+    """
+    Model exporter class for converting PyTorch models to ONNX format.
+    
+    Supports exporting multiple detection model architectures including
+    Faster R-CNN, YOLOv11, and RFDETR.
+    """
+    
+    def __init__(self, modelName, confidenceThreshold=0.5):
+        """
+        Initialize the exporter with a specified model.
+        
+        Args:
+            modelName (str): Name of the model to export ('fasterrcnn', 'yolov11', or 'rfdetr')
+            confidenceThreshold (float): Confidence threshold for detection (0.0-1.0)
+        """
         self.modelName = modelName.lower()
-        if self.modelName not in ['fasterrcnn', 'yolov11']:
-            log.error(f"Model {self.modelName} not supported. Only {list(models.keys())} are supported.")
+        self.confidenceThreshold = confidenceThreshold
+        
+        # Validate model name
+        if self.modelName not in SUPPORTED_MODELS:
+            log.error(f"Model {self.modelName} not supported. Only {', '.join(SUPPORTED_MODELS)} are supported.")
             sys.exit(1)
-        log.info(f"Exporting {self.modelName} model to ONNX format...")
-        self.modelPath = os.path.join('models', models[self.modelName])
-        if not os.path.exists(self.modelPath):
-            log.error(f"Model file {self.modelPath} not found.")
-            sys.exit(1)
-        log.info(f"Model file found: {self.modelPath}")
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            
+        log.info(f"Preparing to export {self.modelName} model to ONNX format...")
+        
+        # Initialize detector to load the model
+        self.detector = Detector(modelName=self.modelName, confidenceThreshold=confidenceThreshold)
+        self.model = self.detector.model
+        
+        # Set device from the detector
+        self.device = self.detector.device
         log.info(f"Using device: {self.device}")
-        self.model = self.loadModel()
-        self.exportPath = os.path.join('models', f"{self.modelName}.onnx")
+        
+        # Define the export path
+        os.makedirs(DEFAULT_EXPORT_DIR, exist_ok=True)
+        self.exportPath = os.path.join(DEFAULT_EXPORT_DIR, f"{self.modelName}.onnx")
         self.exported = False
     
-    def loadModel(self):
-        if self.modelName == 'fasterrcnn':
-            # Load the FasterRCNN model
-            model = torchvision.models.detection.fasterrcnn_resnet50_fpn_v2(
-                weights=None, weights_backbone=None, num_classes=6
-            )
-            checkpoint = torch.load(self.modelPath, map_location=self.device)
-            model.load_state_dict(checkpoint)
-            model.to(self.device).eval()
-            log.info(f"Model loaded: {self.modelPath}")
-            return model
-        elif self.modelName == 'yolov11':
-            model = ultralytics.YOLO(self.modelPath)
-            log.info(f"Model loaded: {self.modelPath}")
-            return model
-    
     def exportONNX(self):
-        if self.modelName == 'fasterrcnn':
-            dummy_input = torch.randn(1, 3, 1530, 2720).to(self.device)
+        """
+        Export the model to ONNX format.
+        
+        Each model type requires slightly different export parameters and handling.
+        
+        Returns:
+            bool: True if export was successful, False otherwise
+        """
+        try:
+            # Export model based on its type
+            if self.modelName == 'fasterrcnn':
+                self._exportFasterRCNN()
+            elif self.modelName == 'yolov11':
+                self._exportYOLO()
+            elif self.modelName == 'rfdetr':
+                self._exportRFDETR()
+                
+            return self.exported
+            
+        except Exception as e:
+            log.error(f"Export failed: {str(e)}")
+            return False
+            
+    def _exportFasterRCNN(self):
+        """Export Faster R-CNN model to ONNX."""
+        log.info("Exporting Faster R-CNN model...")
+        
+        # Create dummy input for tracing
+        dummy_input = torch.randn(1, 3, 1530, 2720).to(self.device)
 
-            torch.onnx.export(
-                self.model,
-                dummy_input,
-                self.exportPath,
-                export_params=True,
-                opset_version=17,
-                do_constant_folding=True,
-                input_names=['images'],
-                output_names=['boxes', 'labels', 'scores'],
-            )
-            log.info(f"Exported FasterRCNN model to {self.exportPath}")
-            self.exported = True
-        elif self.modelName == 'yolov11':
-            self.model.export(format='onnx')
-            log.info(f"Exported YOLOv11 model to {self.exportPath}")
-            self.exported = True
+        # Export using ONNX
+        torch.onnx.export(
+            self.model,
+            dummy_input,
+            self.exportPath,
+            export_params=True,
+            opset_version=17,
+            do_constant_folding=True,
+            input_names=['images'],
+            output_names=['boxes', 'labels', 'scores'],
+        )
+        
+        log.info(f"Exported Faster R-CNN model to {self.exportPath}")
+        self.exported = True
+        
+    def _exportYOLO(self):
+        """Export YOLOv11 model to ONNX."""
+        log.info("Exporting YOLOv11 model...")
+        
+        # For YOLO models, use the built-in export method
+        self.model.export(format='onnx')
+        
+        log.info(f"Exported YOLOv11 model to {self.exportPath}")
+        self.exported = True
+        
+    def _exportRFDETR(self):
+        """Export RFDETR transformer model to ONNX."""
+        log.info("Exporting RFDETR model...")
+        
+        # Create dummy input for tracing
+        dummy_input = torch.randn(1, 3, 1280, 1280).to(self.device)
+        
+        # Export using ONNX
+        torch.onnx.export(
+            self.model,
+            dummy_input,
+            self.exportPath,
+            export_params=True,
+            opset_version=12,
+            do_constant_folding=True,
+            input_names=['images'],
+            output_names=['pred_logits', 'pred_boxes'],
+        )
+        
+        log.info(f"Exported RFDETR model to {self.exportPath}")
+        self.exported = True
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Export models to ONNX format.")
-    parser.add_argument('-m','--model', type=str, required=True, help="Model name: 'fasterrcnn' or 'yolov11'")
+
+def main():
+    """
+    Entry point when script is run directly.
+    
+    Parses command line arguments and exports the specified model.
+    """
+    parser = argparse.ArgumentParser(
+        description="Export trained detection models to ONNX format for deployment."
+    )
+    
+    parser.add_argument(
+        '-m', '--model', 
+        type=str, 
+        required=True, 
+        help="Model name for export", 
+        choices=SUPPORTED_MODELS
+    )
+    
+    parser.add_argument(
+        '-c', '--confidence', 
+        type=float, 
+        default=0.5,
+        help="Confidence threshold for detection (0.0-1.0)"
+    )
+    
     args = parser.parse_args()
 
-    exporter = Exporter(args.model)
-    exporter.exportONNX()
+    # Export the model
+    exporter = Exporter(args.model, args.confidence)
+    success = exporter.exportONNX()
+    
+    if success:
+        log.info("Export completed successfully.")
+        sys.exit(0)
+    else:
+        log.error("Export failed.")
+        sys.exit(1)
 
 
-        
-        
+if __name__ == "__main__":
+    main()
