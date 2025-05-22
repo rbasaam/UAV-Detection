@@ -57,18 +57,11 @@ class Exporter:
                 self.model,
                 dummy_input,
                 self.exportPath,
-                # export_params=True,
+                export_params=True,
                 opset_version=17,
-                # do_constant_folding=True,
-                input_names=['input'],
+                do_constant_folding=True,
+                input_names=['images'],
                 output_names=['boxes', 'labels', 'scores'],
-                # dynamic_axes={
-                #     'input': {2: 'height', 3: 'width'},
-                #     'boxes': {0: 'detections'},
-                #     'labels': {0: 'detections'},
-                #     'scores': {0: 'detections'},
-                #     },
-                # # dynamo=True
             )
             log.info(f"Exported FasterRCNN model to {self.exportPath}")
             self.exported = True
