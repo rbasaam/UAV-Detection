@@ -121,20 +121,7 @@ class Exporter:
         """Export RFDETR transformer model to ONNX."""
         log.info("Exporting RFDETR model...")
         
-        # Create dummy input for tracing
-        dummy_input = torch.randn(1, 3, 1280, 1280).to(self.device)
-        
-        # Export using ONNX
-        torch.onnx.export(
-            self.model,
-            dummy_input,
-            self.exportPath,
-            export_params=True,
-            opset_version=12,
-            do_constant_folding=True,
-            input_names=['images'],
-            output_names=['pred_logits', 'pred_boxes'],
-        )
+        self.model.export()
         
         log.info(f"Exported RFDETR model to {self.exportPath}")
         self.exported = True

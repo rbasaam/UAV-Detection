@@ -27,7 +27,7 @@ CLASS_LABELS = ['UAV', 'Airliner', 'Balloon', 'Bird', 'Helicopter']
 MODEL_PATHS = {
     'fasterrcnn': 'fasterrcnn.pth',
     'yolov11': 'yolov11.pt',
-    'rfdetr': 'transformer.pth',
+    'rfdetr': 'rfdetr.pth',
 }
 
 
