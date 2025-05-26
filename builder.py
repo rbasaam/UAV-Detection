@@ -88,6 +88,7 @@ class EngineBuilder:
         Returns:
             bool: True if engine build was successful, False otherwise
         """
+        self.modelName = model_name.lower()
         try:
             # Step 1: Create network
             self.create_network()
@@ -217,9 +218,62 @@ class EngineBuilder:
         profile = self.builder.create_optimization_profile()
         input_tensor = self.network.get_input(0)
         input_shape = input_tensor.shape
+        input_name = input_tensor.name
         
-        # Use the input shape from the network
-        profile.set_shape(input_tensor.name, input_shape, input_shape, input_shape)
+        # Handle dynamic shapes (dimensions with -1)
+        has_dynamic_shape = any(dim == -1 for dim in input_shape)
+        
+        if has_dynamic_shape:
+            log.info(f"Dynamic input shape detected: {input_shape}")
+            
+            # Get the actual shape, replacing -1 with concrete values
+            actual_shape = []
+            
+            for i, dim in enumerate(input_shape):
+                if dim == -1:
+                    if i == 0:  # Batch dimension
+                        actual_shape.append(1)  # Set min batch size to 1
+                    elif i == 1:  # Channel dimension
+                        actual_shape.append(3)  # RGB images have 3 channels
+                    else:  # Height or width
+                        # For YOLO models, set specific image size ranges
+                        if self.modelName.lower() == 'yolov11':
+                            actual_shape.append(640)  # Start with 640
+                        else:
+                            actual_shape.append(640)  # Default minimum dimension
+                else:
+                    actual_shape.append(dim)
+            
+            # Create min, optimal, max shapes
+            min_shape = tuple(actual_shape)
+            
+            # For opt shape, increase spatial dimensions
+            opt_shape = list(min_shape)
+            if len(opt_shape) >= 3:  # For image inputs
+                opt_shape[-2] = 1280  # Height
+                opt_shape[-1] = 1280  # Width
+            
+            # For max shape, use the export dimensions
+            max_shape = list(min_shape)
+            if len(max_shape) >= 3:  # For image inputs
+                max_shape[-2] = 2720  # Height
+                max_shape[-1] = 2720  # Width
+                
+            # Convert lists to tuples
+            opt_shape = tuple(opt_shape)
+            max_shape = tuple(max_shape)
+            
+            log.info(f"Setting dynamic optimization profile for {input_name}:")
+            log.info(f"  Min shape: {min_shape}")
+            log.info(f"  Opt shape: {opt_shape}")
+            log.info(f"  Max shape: {max_shape}")
+        else:
+            # Static shape - use the same for min, opt, max
+            min_shape = opt_shape = max_shape = tuple(input_shape)
+            log.info(f"Setting static optimization profile: {min_shape}")
+        
+        # Set the profile dimensions
+        profile.set_shape(input_name, min_shape, opt_shape, max_shape)
         self.config.add_optimization_profile(profile)
         log.info(f"Set optimization profile with shape {input_shape}")
 

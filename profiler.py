@@ -1,11 +1,21 @@
 from detector import Detector
+from trt_detector import TRTDetector
 from loader import DataLoader
+import time
 
 DATA_PATH = 'data/images/DJI_0002/'
-imgIdx = 10
 
 loader = DataLoader(DATA_PATH)
-# loader.preview(imgIdx)
-loader.getImageInfo(imgIdx)
-detector = Detector(modelName='yolov11', confidenceThreshold=0.7)
-detector.predict(loader[imgIdx], show=True, verbose=True)
+
+MODEL = 'yolov11'
+CONFIDENCE_THRESHOLD = 0.7
+
+yolo_base = Detector(modelName=MODEL, confidenceThreshold=CONFIDENCE_THRESHOLD)
+yolo_fp16 = TRTDetector(modelName=MODEL, precision='fp16', confidenceThreshold=CONFIDENCE_THRESHOLD)
+yolo_fp32 = TRTDetector(modelName=MODEL, precision='fp32', confidenceThreshold=CONFIDENCE_THRESHOLD)
+
+for model in [yolo_base, yolo_fp16, yolo_fp32]:
+    model.benchmark(loader, warmup=20, runs=200)
+    
+
+

@@ -1,6 +1,11 @@
-import torch
-from rfdetr import RFDETRBase
+from detector import Detector
+from loader import DataLoader
 
-model = RFDETRBase(pretrain_weights='models/transformer.pth')
-model.export()
-print("Model exported to ONNX format.")
+DATA_PATH = 'data/images/DJI_0002/'
+imgIdx = 10
+
+loader = DataLoader(DATA_PATH)
+# loader.preview(imgIdx)
+loader.getImageInfo(imgIdx)
+detector = Detector(modelName='yolov11', confidenceThreshold=0.7)
+detector.predict(loader[imgIdx], show=True, verbose=True)

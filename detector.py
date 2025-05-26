@@ -16,8 +16,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from rfdetr import RFDETRBase
 
-from loader import DataLoader
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("Detector")
@@ -253,7 +251,7 @@ class Detector:
         plt.axis('off')
         plt.show()
     
-    def benchmark(self, dataPath, warmup=10, runs=100):
+    def benchmark(self, loader, warmup=10, runs=100):
         """
         Benchmark the model on a set of images.
         
@@ -263,11 +261,10 @@ class Detector:
             runs (int): Number of runs to average timing over
         """
         # Load dataset
-        loader = DataLoader(dataPath)
         log.info(f"Benchmarking {self.modelName} model on {len(loader)} images...")
         
         # Prepare output path
-        outputPath = os.path.join('benchmarks', f"baseline_{self.modelName}.csv")
+        outputPath = os.path.join('benchmarks', f"{self.modelName}_baseline.csv")
         os.makedirs(os.path.dirname(outputPath), exist_ok=True)
         
         times = []
@@ -283,7 +280,7 @@ class Detector:
                 times.append(inferenceTime)
                 numPredictions.append(len(validPredictions['Boxes']))
                 log.info(f"Image {i-warmup+1}/{runs}: {len(validPredictions['Boxes'])} predictions, "
-                         f"inference time: {inferenceTime:.4f} seconds")
+                         f"inference time: {inferenceTime*1000:.4f} ms")
         
         # Save results to CSV
         df = pd.DataFrame({

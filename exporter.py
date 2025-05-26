@@ -112,7 +112,15 @@ class Exporter:
         log.info("Exporting YOLOv11 model...")
         
         # For YOLO models, use the built-in export method
-        self.model.export(format='onnx')
+        self.model.export(
+            format='onnx',
+            imgsz=(1530, 2720),     # Input size
+            opset=17,
+            nms=True,
+            simplify=True,
+            half=True,              # Use half precision if available
+            device=0,               # Use GPU if available
+        )
         
         log.info(f"Exported YOLOv11 model to {self.exportPath}")
         self.exported = True
