@@ -286,7 +286,7 @@ class Detector:
         df = pd.DataFrame({
             'Image': [f"Image {i+1}" for i in range(len(times))],
             'Num Predictions': numPredictions,
-            'Inference Time (s)': times
+            'Inference Time (ms)': [t*1000 for t in times]  # Convert to milliseconds
         })
         df.to_csv(outputPath, index=False)
         
@@ -294,3 +294,5 @@ class Detector:
         avgTime = np.mean(times)
         log.info(f"Average inference time: {avgTime*1000:.2f} ms")
         log.info(f"Average FPS: {1/avgTime:.2f}")
+        log.info(f"Benchmark results saved to {outputPath}")
+        return df
