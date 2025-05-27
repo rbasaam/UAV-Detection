@@ -203,62 +203,58 @@ class TRTDetector:
         validPredictions['Labels'] = [CLASS_LABELS[c] for c in classes]
 
         if verbose:
-            log.info(f"Inference: {inferenceTime*1000:.2f} ms")
-            log.info(f"Found {len(boxes)} detections")
-            if len(boxes) > 0:
-                log.info(f"Sample boxes: {boxes[:3]}")
-                log.info(f"Sample scores: {scores[:3]}")
-                log.info(f"Sample classes: {classes[:3]}")
+            log.info(f"Model: {self.modelName}, Inference Time: {inferenceTime:.4f} seconds")
+            log.info(f"Predictions: {len(validPredictions['Boxes'])} boxes detected with scores above threshold {self.conf_threshold}")
+            print('-'*50)
+            for i, (label, box, score) in enumerate(zip(
+                    validPredictions['Labels'],
+                    validPredictions['Boxes'],
+                    validPredictions['Scores'])):
+                print(f"Prediction {i+1}: {label} ({score:.2f})")
+                print(f"Box coordinates: {box}")
+            print('-'*50)
         
         if show:
-            self._showResults(image, boxes, scores, classes)
+            self._visualizeResults(image, validPredictions)
 
         return validPredictions, inferenceTime
 
     def _postprocess_rfdetr(self):
-        """Process RFDETR outputs (separate tensors for boxes and labels)."""
-        # Get the two output tensors
-        boxes_out = self.outputs[0]  # dets output: [batch_size, num_detections, 4]
-        labels_out = self.outputs[1]  # labels output: [batch_size, num_detections, 5]
-        
-        # Get shapes
-        boxes_shape = self.engine.get_tensor_shape(boxes_out.name)
-        labels_shape = self.engine.get_tensor_shape(labels_out.name)
-        
-        # Process boxes - shape (1, 300, 4)
-        boxes = np.reshape(boxes_out.host, boxes_shape)
-        boxes = boxes[0]  # Remove batch dimension: (300, 4)
-        
-        # Process labels - shape (1, 300, 5) 
-        # Format: [confidence, class_prob_0, class_prob_1, class_prob_2, ...]
-        labels = np.reshape(labels_out.host, labels_shape)
-        labels = labels[0]  # Remove batch dimension: (300, 5)
-        
-        # Extract scores (first column)
-        scores = labels[:, 0]
-        
-        # Get class index with highest probability (columns 1-4 are class probabilities)
-        classes = np.argmax(labels[:, 1:], axis=1)
-        
-        # Apply confidence threshold
-        mask = scores > self.conf_threshold
-        
-        filtered_boxes = boxes[mask]
-        filtered_scores = scores[mask]
-        filtered_classes = classes[mask]
-        
-        # Check if we have any detections
-        if len(filtered_boxes) > 0:
-            # Only scale boxes if we have detections
-            if np.max(filtered_boxes) <= 1.0:
-                # Boxes are normalized [0,1], scale to image dimensions
-                filtered_boxes[:, [0, 2]] *= self.orig_width
-                filtered_boxes[:, [1, 3]] *= self.orig_height
-        else:
-            log.info("No detections found that meet confidence threshold")
-        
-        # Return filtered results
-        return filtered_boxes, filtered_scores, filtered_classes
+        # Get raw outputs
+        boxes_out, logits_out = self.outputs
+        boxes_shape  = self.engine.get_tensor_shape(boxes_out.name)
+        logits_shape = self.engine.get_tensor_shape(logits_out.name)
+
+        # Reshape and strip batch dim
+        boxes  = np.reshape(boxes_out.host,  boxes_shape)[0]   # (N,4)
+        logits = np.reshape(logits_out.host, logits_shape)[0]  # (N,5)
+
+        # ---- SOFTMAX STEP ----
+        # Convert logits to probabilities in a numerically stable way
+        m    = np.max(logits, axis=1, keepdims=True)             # (N,1)
+        exp  = np.exp(logits - m)                                # (N,5)
+        probs = exp / np.sum(exp, axis=1, keepdims=True)         # (N,5)
+
+        # Pick class by argmax on logits, and its probability as the score
+        classes = np.argmax(logits, axis=1)                      # (N,)
+        scores  = probs[np.arange(probs.shape[0]), classes]      # (N,)
+
+        # Filter by confidence threshold
+        mask    = scores > self.conf_threshold
+        boxes   = boxes[mask]
+        scores  = scores[mask]
+        classes = classes[mask]
+
+        # Scale normalized boxes back to image size, if needed
+        if boxes.size and boxes.max() <= 1.0:
+            boxes[:, [0,2]] *= self.orig_width
+            boxes[:, [1,3]] *= self.orig_height
+
+        # Convert from (xc, yc, w, h) to (x1, y1, x2, y2)
+        xc, yc, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+        boxes = np.column_stack((xc - w/2, yc - h/2, xc + w/2, yc + h/2))
+
+        return boxes, scores, classes
 
     def _postprocess_yolo(self, flat_out, shape):
         """Process YOLO output tensor with format [batch, num_detections, 6]."""
@@ -290,26 +286,46 @@ class TRTDetector:
         mask = scores > self.conf_threshold
         return boxes[mask], scores[mask], classes[mask]
 
-    def _showResults(self, image, boxes, scores, classes):
-        """Visualize detection results."""
-        fig, ax = plt.subplots(1)
-        ax.imshow(image)
+    def _visualizeResults(self, image, validPredictions):
+        """Visualize detection results on the image."""
+        fig, ax = plt.subplots(1, figsize=(12, 9))
+        ax.set_title(f"{self.modelName} ({self.precision}) Predictions", fontsize=16)
+        # Handle different image formats
+        if isinstance(image, np.ndarray):
+            # If image is numpy array in RGB format
+            ax.imshow(image)
+        elif isinstance(image, torch.Tensor):
+            # If image is a PyTorch tensor
+            img_np = image.permute(1, 2, 0).cpu().numpy()
+            ax.imshow(img_np)
         
-        for box, score, cls in zip(boxes, scores, classes):
-            x1,y1,x2,y2 = box
-            rect = patches.Rectangle((x1,y1), x2-x1, y2-y1, linewidth=2,
-                                     edgecolor='r', facecolor='none')
+        # Draw bounding boxes and labels
+        for label, box, score in zip(
+                validPredictions['Labels'],
+                validPredictions['Boxes'],
+                validPredictions['Scores']):
+            
+            # Extract coordinates
+            xmin, ymin, xmax, ymax = box
+            width, height = xmax - xmin, ymax - ymin
+            
+            # Create and add rectangle
+            rect = patches.Rectangle(
+                (xmin, ymin), width, height,
+                linewidth=2, edgecolor='g', facecolor='none'
+            )
             ax.add_patch(rect)
-            ax.text(x1, y1, f"{CLASS_LABELS[cls]}:{score:.2f}",
-                    color='white', fontsize=12,
-                    bbox=dict(facecolor='red', alpha=0.5))
+            
+            # Add label with score
+            ax.text(
+                xmin-15, ymin-30,
+                f'{label} ({score:.2f})',
+                fontsize=12, color='white',
+                bbox=dict(facecolor='green', alpha=0.5)
+            )
         
-        # Show and close to free memory
+        plt.axis('off')
         plt.show()
-        plt.close(fig)
-        
-        log.info("Displayed results.")
-        return boxes, scores, classes
     
     def benchmark(self, loader, warmup=10, runs=100):
         """Benchmark the model on a set of images."""

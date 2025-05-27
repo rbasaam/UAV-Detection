@@ -213,7 +213,7 @@ class Detector:
     def _visualizeResults(self, image, validPredictions):
         """Visualize detection results on the image."""
         fig, ax = plt.subplots(1, figsize=(12, 9))
-        
+        ax.set_title(f"{self.modelName} Base Detector", fontsize=16)
         # Handle different image formats
         if isinstance(image, np.ndarray):
             # If image is numpy array in RGB format
